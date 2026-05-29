@@ -1,0 +1,47 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+      Name="IMM"
+      Manufacturer="susu3304"
+      Version="$(var.ProductVersion)"
+      UpgradeCode="7951722A-BCE8-4A8C-89EA-1E84A76BCDB7"
+      InstallerVersion="500"
+      Scope="perMachine">
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of IMM is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Feature Id="MainFeature" Title="IMM" Level="1">
+      <ComponentGroupRef Id="ProductComponents" />
+    </Feature>
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="IMM">
+        <Directory Id="INSTALLBINFOLDER" Name="bin" />
+      </Directory>
+    </StandardDirectory>
+
+    <ComponentGroup Id="ProductComponents" Directory="INSTALLBINFOLDER">
+      <Component Id="ImmExecutable" Guid="3C650C28-9B58-4931-895C-61005559565C">
+        <File Id="ImmExe" Source="$(var.SourceDir)\imm.exe" KeyPath="yes" />
+      </Component>
+
+      <Component Id="AddInstallFolderToPath" Guid="9292DF34-69B5-4BCF-8891-24245B6B7CD8">
+        <Environment
+            Id="ImmPath"
+            Name="PATH"
+            Value="[INSTALLBINFOLDER]"
+            Permanent="no"
+            Part="last"
+            Action="set"
+            System="yes" />
+        <RegistryValue
+            Root="HKLM"
+            Key="Software\IMM"
+            Name="PathConfigured"
+            Type="integer"
+            Value="1"
+            KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+  </Package>
+</Wix>

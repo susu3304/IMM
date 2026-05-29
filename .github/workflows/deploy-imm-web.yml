@@ -1,0 +1,41 @@
+name: Deploy IMM Web
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "apps/imm-web/**"
+      - ".github/workflows/deploy-imm-web.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/imm-web/package-lock.json
+
+      - name: Install dependencies
+        working-directory: apps/imm-web
+        run: npm ci
+
+      - name: Build
+        working-directory: apps/imm-web
+        run: npm run build
+
+      - uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy
+          workingDirectory: apps/imm-web
+

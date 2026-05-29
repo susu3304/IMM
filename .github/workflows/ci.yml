@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - develop
+      - "codex/**"
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  runtime:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Format
+        run: cargo fmt --check --all
+
+      - name: Test
+        run: cargo test --locked -p imm-native
+
+      - name: Law suite
+        run: cargo run --locked -p imm-native -- law
+
+  vscode:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        working-directory: editors/vscode/imm
+        run: npm ci
+
+      - name: Validate extension
+        working-directory: editors/vscode/imm
+        run: npm test
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/imm-web/package-lock.json
+
+      - name: Install dependencies
+        working-directory: apps/imm-web
+        run: npm ci
+
+      - name: Build
+        working-directory: apps/imm-web
+        run: npm run build
+
+      - name: Smoke
+        working-directory: apps/imm-web
+        run: npm run smoke

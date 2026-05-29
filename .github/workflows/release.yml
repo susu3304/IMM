@@ -1,0 +1,314 @@
+name: Release IMM
+
+on:
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Publish even if the release tag already exists
+        required: false
+        type: boolean
+        default: false
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: imm-release
+  cancel-in-progress: false
+
+env:
+  IMM_SOURCE_DIR: crates/imm-native
+  IMM_VSCODE_EXTENSION_DIR: editors/vscode/imm
+  HOMEBREW_TAP_REPOSITORY: susu3304/homebrew-imm
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      should_release: ${{ steps.existing.outputs.should_release }}
+      cargo_version: ${{ steps.version.outputs.cargo_version }}
+      upstream_sha: ${{ steps.version.outputs.upstream_sha }}
+      short_sha: ${{ steps.version.outputs.short_sha }}
+      deb_version: ${{ steps.version.outputs.deb_version }}
+      msi_version: ${{ steps.version.outputs.msi_version }}
+      release_tag: ${{ steps.version.outputs.release_tag }}
+      release_name: ${{ steps.version.outputs.release_name }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Compute package versions
+        id: version
+        run: packaging/installers/scripts/compute-version.sh "$IMM_SOURCE_DIR"
+
+      - name: Verify pushed tag matches Cargo version
+        if: github.event_name == 'push'
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF_NAME" != "$RELEASE_TAG" ]; then
+            echo "tag $GITHUB_REF_NAME does not match Cargo version tag $RELEASE_TAG" >&2
+            exit 1
+          fi
+
+      - name: Check whether release already exists
+        id: existing
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FORCE: ${{ inputs.force || 'false' }}
+          RELEASE_TAG: ${{ steps.version.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          if [ "$FORCE" = "true" ]; then
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "release $RELEASE_TAG already exists; skipping"
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  linux-deb:
+    runs-on: ubuntu-22.04
+    needs: prepare
+    if: needs.prepare.outputs.should_release == 'true'
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install packaging tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dpkg-dev
+
+      - name: Build Debian package
+        run: packaging/installers/scripts/build-deb.sh "$IMM_SOURCE_DIR" "${{ needs.prepare.outputs.deb_version }}" dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: imm-linux-deb
+          path: dist/*.deb
+          if-no-files-found: error
+
+  windows-msi:
+    runs-on: windows-latest
+    needs: prepare
+    if: needs.prepare.outputs.should_release == 'true'
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build MSI
+        shell: pwsh
+        run: |
+          packaging/installers/scripts/build-msi.ps1 `
+            -SourceDir $env:IMM_SOURCE_DIR `
+            -ProductVersion "${{ needs.prepare.outputs.msi_version }}" `
+            -OutDir dist
+
+      - name: Package portable zip
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path dist\release -Force | Out-Null
+          Copy-Item "$env:IMM_SOURCE_DIR\target\release\imm-native.exe" dist\release\imm.exe
+          Compress-Archive -Path dist\release\imm.exe -DestinationPath dist\imm-windows-x64.zip -Force
+          $sha256 = (Get-FileHash dist\imm-windows-x64.zip -Algorithm SHA256).Hash
+          "IMM_WINDOWS_X64_SHA256=$sha256" >> $env:GITHUB_ENV
+          "Windows portable SHA256: $sha256" >> $env:GITHUB_STEP_SUMMARY
+
+      - name: Generate winget manifests
+        shell: bash
+        run: |
+          crates/imm-native/scripts/generate-winget-manifest.sh \
+            --version "${{ needs.prepare.outputs.cargo_version }}" \
+            --sha256 "$IMM_WINDOWS_X64_SHA256" \
+            --release-tag "${{ needs.prepare.outputs.release_tag }}" \
+            --release-date "$(date -u +%F)" \
+            --output-dir dist/winget
+
+      - name: Archive winget manifests
+        shell: pwsh
+        run: Compress-Archive -Path dist\winget\* -DestinationPath dist\imm-winget-manifests.zip -Force
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: imm-windows-msi
+          path: |
+            dist/*.msi
+            dist/*.zip
+          if-no-files-found: error
+
+  macos-tarball:
+    needs: prepare
+    if: needs.prepare.outputs.should_release == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+            artifact_arch: x64
+          - runner: macos-14
+            target: aarch64-apple-darwin
+            artifact_arch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build macOS tarball
+        run: packaging/installers/scripts/build-macos-tarball.sh "$IMM_SOURCE_DIR" "${{ matrix.target }}" dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: imm-macos-${{ matrix.artifact_arch }}
+          path: dist/imm-macos-${{ matrix.artifact_arch }}.tar.gz
+          if-no-files-found: error
+
+  vscode-extension:
+    runs-on: ubuntu-latest
+    needs: prepare
+    if: needs.prepare.outputs.should_release == 'true'
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      - name: Build VS Code extension
+        run: packaging/installers/scripts/build-vscode-extension.sh "$IMM_SOURCE_DIR" dist "$IMM_VSCODE_EXTENSION_DIR"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: imm-vscode-extension
+          path: dist/*.vsix
+          if-no-files-found: error
+
+  publish:
+    runs-on: ubuntu-latest
+    needs:
+      - prepare
+      - linux-deb
+      - windows-msi
+      - macos-tarball
+      - vscode-extension
+    if: needs.prepare.outputs.should_release == 'true'
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: imm-*
+          path: dist
+          merge-multiple: true
+
+      - name: Install APT repository tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y apt-utils dpkg-dev gnupg
+
+      - name: Build APT repository
+        env:
+          APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+          APT_GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          deb_file=$(find dist -maxdepth 1 -name '*.deb' -print -quit)
+          if [ -z "$deb_file" ]; then
+            echo "no .deb artifact found" >&2
+            exit 1
+          fi
+          packaging/installers/scripts/build-apt-repo.sh "$deb_file" "${{ needs.prepare.outputs.deb_version }}" site/apt
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+          RELEASE_NAME: ${{ needs.prepare.outputs.release_name }}
+          UPSTREAM_SHA: ${{ needs.prepare.outputs.upstream_sha }}
+        run: |
+          set -euo pipefail
+          release_notes="Built from $GITHUB_REPOSITORY@$UPSTREAM_SHA. Includes native installers, macOS tarballs, Debian package, APT metadata, and the VS Code extension."
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$RELEASE_NAME" \
+              --notes "$release_notes"
+            gh release upload "$RELEASE_TAG" dist/*.deb dist/*.msi dist/*.zip dist/*.tar.gz dist/*.vsix \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+          else
+            gh release create "$RELEASE_TAG" dist/*.deb dist/*.msi dist/*.zip dist/*.tar.gz dist/*.vsix \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$RELEASE_NAME" \
+              --notes "$release_notes"
+          fi
+
+      - name: Update Homebrew tap
+        env:
+          HOMEBREW_TAP_DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+          FORMULA_VERSION: ${{ needs.prepare.outputs.cargo_version }}
+          IMM_RELEASE_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [ -z "${HOMEBREW_TAP_DEPLOY_KEY:-}" ]; then
+            echo "HOMEBREW_TAP_DEPLOY_KEY is not set; skipping tap update"
+            exit 0
+          fi
+
+          install -d -m 0700 ~/.ssh
+          printf '%s\n' "$HOMEBREW_TAP_DEPLOY_KEY" > ~/.ssh/imm_homebrew_tap
+          chmod 600 ~/.ssh/imm_homebrew_tap
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+
+          GIT_SSH_COMMAND="ssh -i ~/.ssh/imm_homebrew_tap -o IdentitiesOnly=yes" \
+            git clone "git@github.com:${HOMEBREW_TAP_REPOSITORY}.git" tap
+
+          packaging/installers/scripts/update-homebrew-formula.sh \
+            "$RELEASE_TAG" \
+            "$FORMULA_VERSION" \
+            dist/imm-macos-arm64.tar.gz \
+            dist/imm-macos-x64.tar.gz \
+            tap/Formula/imm.rb
+
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "Homebrew formula already up to date"
+            exit 0
+          fi
+          git add Formula/imm.rb
+          git commit -m "Update IMM formula to ${FORMULA_VERSION}"
+          GIT_SSH_COMMAND="ssh -i ~/.ssh/imm_homebrew_tap -o IdentitiesOnly=yes" git push origin main
+
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - id: deploy
+        uses: actions/deploy-pages@v4

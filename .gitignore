@@ -1,0 +1,22 @@
+# Rust
+/target/
+**/target/
+
+# Node
+node_modules/
+dist/
+.next/
+
+# Local runtime caches
+.runtime-cache/
+
+# Editor / OS
+.DS_Store
+
+# Generated release artifacts
+*.deb
+*.msi
+*.vsix
+*.tar.gz
+*.zip
+

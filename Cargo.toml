@@ -1,0 +1,6 @@
+[workspace]
+members = [
+  "crates/imm-native"
+]
+resolver = "2"
+
