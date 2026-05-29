@@ -136,7 +136,7 @@ jobs:
             --sha256 "$IMM_WINDOWS_X64_SHA256" \
             --release-tag "${{ needs.prepare.outputs.release_tag }}" \
             --release-date "$(date -u +%F)" \
-            --output-dir dist/winget
+            --output-dir "$PWD/dist/winget"
 
       - name: Archive winget manifests
         shell: pwsh
