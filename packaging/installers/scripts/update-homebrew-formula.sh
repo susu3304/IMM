@@ -11,7 +11,7 @@ version=$2
 arm64_tarball=$3
 x64_tarball=$4
 formula_path=$5
-release_repository=${IMM_RELEASE_REPOSITORY:-susu3304/InsaneMarmotMatrixLanguage}
+release_repository=${IMM_RELEASE_REPOSITORY:-susu3304/IMM}
 
 arm64_sha=$(sha256sum "$arm64_tarball" | awk '{ print $1 }')
 x64_sha=$(sha256sum "$x64_tarball" | awk '{ print $1 }')
@@ -21,7 +21,7 @@ mkdir -p "$(dirname "$formula_path")"
 cat > "$formula_path" <<FORMULA
 class Imm < Formula
   desc "Insane Marmot Matrix native runtime"
-  homepage "https://github.com/susu3304/InsaneMarmotMatrixLanguage"
+  homepage "https://github.com/susu3304/IMM"
   version "$version"
   license :cannot_represent
 
@@ -36,7 +36,7 @@ class Imm < Formula
   end
 
   def install
-    bin.install "bin/imm"
+    bin.install "imm/bin/imm"
   end
 
   test do
