@@ -25,6 +25,7 @@ env:
   IMM_SOURCE_DIR: crates/imm-native
   IMM_VSCODE_EXTENSION_DIR: editors/vscode/imm
   HOMEBREW_TAP_REPOSITORY: susu3304/homebrew-imm
+  ENABLE_GITHUB_PAGES: ${{ vars.ENABLE_GITHUB_PAGES }}
 
 jobs:
   prepare:
@@ -303,12 +304,15 @@ jobs:
           GIT_SSH_COMMAND="ssh -i ~/.ssh/imm_homebrew_tap -o IdentitiesOnly=yes" git push origin main
 
       - uses: actions/configure-pages@v5
+        if: env.ENABLE_GITHUB_PAGES == 'true'
         with:
           enablement: true
 
       - uses: actions/upload-pages-artifact@v3
+        if: env.ENABLE_GITHUB_PAGES == 'true'
         with:
           path: site
 
       - id: deploy
+        if: env.ENABLE_GITHUB_PAGES == 'true'
         uses: actions/deploy-pages@v4
