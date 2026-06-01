@@ -1,0 +1,14 @@
+[package]
+name = "imm-wasm"
+version = "0.2.1"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+imm-core = { path = "../imm-core", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde-wasm-bindgen = "0.6"
+wasm-bindgen = "0.2"
+

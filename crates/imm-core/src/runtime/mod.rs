@@ -2,19 +2,30 @@ use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::fs;
 use std::future::Future;
+#[cfg(feature = "native")]
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+#[cfg(feature = "native")]
+use std::time::Duration;
+#[cfg(feature = "native")]
+use std::time::{SystemTime, UNIX_EPOCH};
 
-use rand::Rng;
 use serde_json::{json, Value as JsonValue};
+#[cfg(feature = "native")]
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+#[cfg(feature = "native")]
 use tokio::net::{TcpListener, TcpStream};
+#[cfg(feature = "native")]
 use tokio::runtime::Builder as TokioRuntimeBuilder;
+#[cfg(feature = "native")]
 use tokio::sync::oneshot;
+#[cfg(feature = "native")]
 use tokio::task::{JoinHandle, LocalSet};
-use tokio::time::{sleep, timeout};
+#[cfg(feature = "native")]
+use tokio::time::sleep;
+#[cfg(feature = "native")]
+use tokio::time::timeout;
 
 use crate::ast::*;
 use crate::checker;
@@ -269,11 +280,13 @@ pub struct WebServer {
     port: i64,
     url: String,
     running: Rc<RefCell<bool>>,
+    #[cfg(feature = "native")]
     stop_tx: RefCell<Option<oneshot::Sender<()>>>,
 }
 
 pub struct TaskData {
     state: TaskState,
+    #[cfg(feature = "native")]
     handle: Option<JoinHandle<Result<Value, Diagnostic>>>,
     result: Option<Result<Value, Diagnostic>>,
 }
@@ -429,6 +442,7 @@ impl Environment {
     }
 }
 
+#[cfg(feature = "native")]
 fn block_on_local<T>(future: impl Future<Output = T>) -> T {
     let runtime = TokioRuntimeBuilder::new_current_thread()
         .enable_all()
@@ -436,6 +450,27 @@ fn block_on_local<T>(future: impl Future<Output = T>) -> T {
         .expect("create IMM async runtime");
     let local = LocalSet::new();
     local.block_on(&runtime, future)
+}
+
+#[cfg(not(feature = "native"))]
+fn block_on_local<T>(future: impl Future<Output = T>) -> T {
+    futures_executor::block_on(future)
+}
+
+fn random_seed() -> u64 {
+    #[cfg(not(feature = "native"))]
+    {
+        return 0x9e37_79b9_7f4a_7c15;
+    }
+
+    #[cfg(feature = "native")]
+    {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_nanos() as u64)
+            .unwrap_or(0x9e37_79b9_7f4a_7c15);
+        nanos ^ 0xa076_1d64_78bd_642f
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -460,6 +495,7 @@ pub struct Runtime {
     insane_depth: usize,
     howl_depth: usize,
     embedded_sources: Rc<BTreeMap<String, String>>,
+    rng_state: u64,
 }
 
 impl Runtime {
@@ -478,6 +514,7 @@ impl Runtime {
             insane_depth: 0,
             howl_depth: 0,
             embedded_sources: Rc::new(BTreeMap::new()),
+            rng_state: random_seed(),
         };
         runtime.install_core();
         runtime
@@ -516,6 +553,7 @@ impl Runtime {
             insane_depth: self.insane_depth,
             howl_depth: self.howl_depth,
             embedded_sources: self.embedded_sources.clone(),
+            rng_state: self.rng_state,
         }
     }
 
@@ -523,11 +561,43 @@ impl Runtime {
         &self,
         future: impl Future<Output = Result<Value, Diagnostic>> + 'static,
     ) -> Value {
-        Value::Task(Rc::new(RefCell::new(TaskData {
-            state: TaskState::Pending,
-            handle: Some(tokio::task::spawn_local(future)),
-            result: None,
-        })))
+        #[cfg(feature = "native")]
+        {
+            return Value::Task(Rc::new(RefCell::new(TaskData {
+                state: TaskState::Pending,
+                handle: Some(tokio::task::spawn_local(future)),
+                result: None,
+            })));
+        }
+
+        #[cfg(not(feature = "native"))]
+        {
+            let result = futures_executor::block_on(future);
+            return Value::Task(Rc::new(RefCell::new(TaskData {
+                state: if result.is_ok() {
+                    TaskState::Ready
+                } else {
+                    TaskState::Failed
+                },
+                result: Some(result),
+            })));
+        }
+    }
+
+    fn random_unit(&mut self) -> f64 {
+        self.rng_state = self
+            .rng_state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        ((self.rng_state >> 11) as f64) / ((1_u64 << 53) as f64)
+    }
+
+    fn random_index(&mut self, len: usize) -> usize {
+        if len <= 1 {
+            0
+        } else {
+            (self.random_unit() * len as f64).floor() as usize
+        }
     }
 
     pub fn load_program(&self, path: &Path) -> Result<Program, Diagnostic> {
@@ -1246,7 +1316,7 @@ impl Runtime {
                 if values.is_empty() {
                     Ok(Value::Null)
                 } else {
-                    let index = rand::rng().random_range(0..values.len());
+                    let index = self.random_index(values.len());
                     Ok(values[index].clone())
                 }
             }
@@ -2264,6 +2334,13 @@ impl Runtime {
                 if ms < 0 {
                     return Err(runtime_error("nap milliseconds must be >= 0"));
                 }
+                #[cfg(not(feature = "native"))]
+                {
+                    return Err(runtime_error(
+                        "nap is not available in the browser WASM runtime",
+                    ));
+                }
+                #[cfg(feature = "native")]
                 Ok(self.spawn_task(async move {
                     sleep(Duration::from_millis(ms as u64)).await;
                     Ok(Value::Null)
@@ -2295,7 +2372,7 @@ impl Runtime {
             }
             BuiltinKind::MathRandom => {
                 require_arg_count("math.random", &args, 0)?;
-                Ok(Value::Float(0.5))
+                Ok(Value::Float(self.random_unit()))
             }
             BuiltinKind::PathBfs => self.path_search(args, false).await,
             BuiltinKind::PathAstar => self.path_search(args, true).await,
@@ -2466,40 +2543,58 @@ impl Runtime {
             }
             BuiltinKind::WebRelease => {
                 require_arg_count("web.release", &args, 2)?;
-                let app = require_web_app(&args[0], "web.release")?;
-                let options = WebServeOptions::from_value(&args[1])?;
-                let (listener, server, stop_rx, config) = bind_web_server(options).await?;
-                let running = server.running.clone();
-                let result = self
-                    .run_web_server(listener, app, running, stop_rx, config)
-                    .await;
-                *server.running.borrow_mut() = false;
-                result
+                #[cfg(not(feature = "native"))]
+                {
+                    return Err(runtime_error(
+                        "web.release is not available in the browser WASM runtime",
+                    ));
+                }
+                #[cfg(feature = "native")]
+                {
+                    let app = require_web_app(&args[0], "web.release")?;
+                    let options = WebServeOptions::from_value(&args[1])?;
+                    let (listener, server, stop_rx, config) = bind_web_server(options).await?;
+                    let running = server.running.clone();
+                    let result = self
+                        .run_web_server(listener, app, running, stop_rx, config)
+                        .await;
+                    *server.running.borrow_mut() = false;
+                    result
+                }
             }
             BuiltinKind::WebPeek | BuiltinKind::WebListen => {
                 require_arg_count("web.peek", &args, 2)?;
-                let app = require_web_app(&args[0], "web.peek")?;
-                let options = WebServeOptions::from_value(&args[1])?;
-                let (listener, server, stop_rx, config) = bind_web_server(options).await?;
-                let server_value = Value::WebServer(Rc::new(server));
-                let Value::WebServer(server_ref) = server_value.clone() else {
-                    unreachable!()
-                };
-                let running = server_ref.running.clone();
-                let mut runtime = self.fork_for_task();
-                tokio::task::spawn_local(async move {
-                    if let Err(err) = runtime
-                        .run_web_server(listener, app, running.clone(), stop_rx, config)
-                        .await
-                    {
-                        runtime
-                            .trace
-                            .borrow_mut()
-                            .push(format!("web server error: {err}"));
-                    }
-                    *running.borrow_mut() = false;
-                });
-                Ok(server_value)
+                #[cfg(not(feature = "native"))]
+                {
+                    return Err(runtime_error(
+                        "web.peek is not available in the browser WASM runtime",
+                    ));
+                }
+                #[cfg(feature = "native")]
+                {
+                    let app = require_web_app(&args[0], "web.peek")?;
+                    let options = WebServeOptions::from_value(&args[1])?;
+                    let (listener, server, stop_rx, config) = bind_web_server(options).await?;
+                    let server_value = Value::WebServer(Rc::new(server));
+                    let Value::WebServer(server_ref) = server_value.clone() else {
+                        unreachable!()
+                    };
+                    let running = server_ref.running.clone();
+                    let mut runtime = self.fork_for_task();
+                    tokio::task::spawn_local(async move {
+                        if let Err(err) = runtime
+                            .run_web_server(listener, app, running.clone(), stop_rx, config)
+                            .await
+                        {
+                            runtime
+                                .trace
+                                .borrow_mut()
+                                .push(format!("web server error: {err}"));
+                        }
+                        *running.borrow_mut() = false;
+                    });
+                    Ok(server_value)
+                }
             }
             BuiltinKind::WebResponse => self.web_response(args),
             BuiltinKind::WebText => {
@@ -2526,11 +2621,20 @@ impl Runtime {
             BuiltinKind::WebLimit => web_limit_middleware(args),
             BuiltinKind::TickNow => {
                 require_arg_count("tick.now", &args, 0)?;
-                let millis = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .map(|duration| duration.as_millis() as i64)
-                    .unwrap_or_default();
-                Ok(Value::Int(millis))
+                #[cfg(not(feature = "native"))]
+                {
+                    return Err(runtime_error(
+                        "tick.now is not available in the browser WASM runtime",
+                    ));
+                }
+                #[cfg(feature = "native")]
+                {
+                    let millis = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .map(|duration| duration.as_millis() as i64)
+                        .unwrap_or_default();
+                    Ok(Value::Int(millis))
+                }
             }
         }
     }
@@ -2775,15 +2879,23 @@ impl Runtime {
             NativeMethodKind::WebServerStop => {
                 require_arg_count("Server.stop", &args, 0)?;
                 if let Value::WebServer(server) = &method.receiver {
-                    let sent = server
-                        .stop_tx
-                        .borrow_mut()
-                        .take()
-                        .is_some_and(|tx| tx.send(()).is_ok());
-                    if sent {
-                        *server.running.borrow_mut() = false;
+                    #[cfg(feature = "native")]
+                    {
+                        let sent = server
+                            .stop_tx
+                            .borrow_mut()
+                            .take()
+                            .is_some_and(|tx| tx.send(()).is_ok());
+                        if sent {
+                            *server.running.borrow_mut() = false;
+                        }
+                        Ok(Value::Bool(sent))
                     }
-                    Ok(Value::Bool(sent))
+                    #[cfg(not(feature = "native"))]
+                    {
+                        *server.running.borrow_mut() = false;
+                        Ok(Value::Bool(false))
+                    }
                 } else {
                     unreachable!()
                 }
@@ -2791,13 +2903,20 @@ impl Runtime {
             NativeMethodKind::WebServerClosed => {
                 require_arg_count("Server.closed", &args, 0)?;
                 if let Value::WebServer(server) = &method.receiver {
-                    let running = server.running.clone();
-                    Ok(self.spawn_task(async move {
-                        while *running.borrow() {
-                            sleep(Duration::from_millis(10)).await;
-                        }
-                        Ok(Value::Null)
-                    }))
+                    #[cfg(not(feature = "native"))]
+                    {
+                        return Ok(Value::Bool(!*server.running.borrow()));
+                    }
+                    #[cfg(feature = "native")]
+                    {
+                        let running = server.running.clone();
+                        Ok(self.spawn_task(async move {
+                            while *running.borrow() {
+                                sleep(Duration::from_millis(10)).await;
+                            }
+                            Ok(Value::Null)
+                        }))
+                    }
                 } else {
                     unreachable!()
                 }
@@ -3131,50 +3250,61 @@ impl Runtime {
             })));
         }
 
-        let method = reqwest::Method::from_bytes(request.method.as_bytes()).map_err(|err| {
-            Diagnostic::new(Category::Network, format!("invalid HTTP method: {err}"))
-        })?;
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_millis(request.timeout_ms as u64))
-            .build()
-            .map_err(|err| {
-                Diagnostic::new(Category::Network, format!("network client failed: {err}"))
-            })?;
-        let mut builder = client.request(method, &request.url);
-        for (key, value) in request.headers {
-            builder = builder.header(key, value);
-        }
-        if let Some(body) = request.body {
-            builder = builder.body(body);
-        }
-        let response = builder.send().await.map_err(|err| {
-            Diagnostic::new(Category::Network, format!("network request failed: {err}"))
-        })?;
-        let status = response.status().as_u16() as i64;
-        let url = response.url().to_string();
-        let headers = response
-            .headers()
-            .iter()
-            .map(|(key, value)| {
-                (
-                    key.as_str().to_string(),
-                    Value::String(value.to_str().unwrap_or_default().to_string()),
-                )
-            })
-            .collect::<BTreeMap<_, _>>();
-        let body = response.text().await.map_err(|err| {
-            Diagnostic::new(
+        #[cfg(not(feature = "native"))]
+        {
+            return Err(Diagnostic::new(
                 Category::Network,
-                format!("network response read failed: {err}"),
-            )
-        })?;
-        Ok(Value::Response(Rc::new(Response {
-            status,
-            headers,
-            body,
-            url,
-            ok: (200..400).contains(&status),
-        })))
+                "external HTTP requests are not available in the browser WASM runtime",
+            ));
+        }
+
+        #[cfg(feature = "native")]
+        {
+            let method = reqwest::Method::from_bytes(request.method.as_bytes()).map_err(|err| {
+                Diagnostic::new(Category::Network, format!("invalid HTTP method: {err}"))
+            })?;
+            let client = reqwest::Client::builder()
+                .timeout(Duration::from_millis(request.timeout_ms as u64))
+                .build()
+                .map_err(|err| {
+                    Diagnostic::new(Category::Network, format!("network client failed: {err}"))
+                })?;
+            let mut builder = client.request(method, &request.url);
+            for (key, value) in request.headers {
+                builder = builder.header(key, value);
+            }
+            if let Some(body) = request.body {
+                builder = builder.body(body);
+            }
+            let response = builder.send().await.map_err(|err| {
+                Diagnostic::new(Category::Network, format!("network request failed: {err}"))
+            })?;
+            let status = response.status().as_u16() as i64;
+            let url = response.url().to_string();
+            let headers = response
+                .headers()
+                .iter()
+                .map(|(key, value)| {
+                    (
+                        key.as_str().to_string(),
+                        Value::String(value.to_str().unwrap_or_default().to_string()),
+                    )
+                })
+                .collect::<BTreeMap<_, _>>();
+            let body = response.text().await.map_err(|err| {
+                Diagnostic::new(
+                    Category::Network,
+                    format!("network response read failed: {err}"),
+                )
+            })?;
+            Ok(Value::Response(Rc::new(Response {
+                status,
+                headers,
+                body,
+                url,
+                ok: (200..400).contains(&status),
+            })))
+        }
     }
 
     fn web_response(&self, args: Vec<Value>) -> Result<Value, Diagnostic> {
@@ -3198,6 +3328,7 @@ impl Runtime {
         ))))
     }
 
+    #[cfg(feature = "native")]
     async fn run_web_server(
         &mut self,
         listener: TcpListener,
@@ -3229,6 +3360,7 @@ impl Runtime {
         Ok(Value::Null)
     }
 
+    #[cfg(feature = "native")]
     async fn handle_web_connection(
         &mut self,
         mut stream: TcpStream,
@@ -3908,63 +4040,106 @@ fn expr_may_capture_env(expr: &Expr) -> bool {
 }
 
 async fn wait_task(task: TaskRef) -> Result<Value, Diagnostic> {
-    let handle = {
-        let mut task = task.borrow_mut();
+    #[cfg(not(feature = "native"))]
+    {
+        let task = task.borrow();
         if let Some(result) = task.result.clone() {
             return result;
         }
         if task.state == TaskState::Canceled {
             return Err(runtime_error("task canceled"));
         }
-        task.handle.take()
-    };
-
-    let Some(handle) = handle else {
         return Err(runtime_error("task has no runnable handle"));
-    };
+    }
 
-    let result = match handle.await {
-        Ok(result) => result,
-        Err(err) if err.is_cancelled() => Err(runtime_error("task canceled")),
-        Err(err) => Err(runtime_error(format!("task failed to join: {err}"))),
-    };
+    #[cfg(feature = "native")]
+    {
+        let handle = {
+            let mut task = task.borrow_mut();
+            if let Some(result) = task.result.clone() {
+                return result;
+            }
+            if task.state == TaskState::Canceled {
+                return Err(runtime_error("task canceled"));
+            }
+            task.handle.take()
+        };
 
-    let mut task_data = task.borrow_mut();
-    task_data.state = if result.is_ok() {
-        TaskState::Ready
-    } else {
-        TaskState::Failed
-    };
-    task_data.result = Some(result.clone());
-    result
+        let Some(handle) = handle else {
+            return Err(runtime_error("task has no runnable handle"));
+        };
+
+        let result = match handle.await {
+            Ok(result) => result,
+            Err(err) if err.is_cancelled() => Err(runtime_error("task canceled")),
+            Err(err) => Err(runtime_error(format!("task failed to join: {err}"))),
+        };
+
+        let mut task_data = task.borrow_mut();
+        task_data.state = if result.is_ok() {
+            TaskState::Ready
+        } else {
+            TaskState::Failed
+        };
+        task_data.result = Some(result.clone());
+        result
+    }
 }
 
 fn task_done(task: &TaskRef) -> bool {
-    let task = task.borrow();
-    matches!(
-        task.state,
-        TaskState::Ready | TaskState::Failed | TaskState::Canceled
-    ) || task.handle.as_ref().is_some_and(JoinHandle::is_finished)
+    #[cfg(not(feature = "native"))]
+    {
+        return matches!(
+            task.borrow().state,
+            TaskState::Ready | TaskState::Failed | TaskState::Canceled
+        );
+    }
+
+    #[cfg(feature = "native")]
+    {
+        let task = task.borrow();
+        matches!(
+            task.state,
+            TaskState::Ready | TaskState::Failed | TaskState::Canceled
+        ) || task.handle.as_ref().is_some_and(JoinHandle::is_finished)
+    }
 }
 
 fn task_cancel(task: &TaskRef) -> bool {
-    let mut task = task.borrow_mut();
-    if matches!(
-        task.state,
-        TaskState::Ready | TaskState::Failed | TaskState::Canceled
-    ) {
-        return false;
+    #[cfg(not(feature = "native"))]
+    {
+        let mut task = task.borrow_mut();
+        if matches!(
+            task.state,
+            TaskState::Ready | TaskState::Failed | TaskState::Canceled
+        ) {
+            return false;
+        }
+        task.state = TaskState::Canceled;
+        task.result = Some(Err(runtime_error("task canceled")));
+        return true;
     }
-    if task.handle.as_ref().is_some_and(JoinHandle::is_finished) {
-        return false;
+
+    #[cfg(feature = "native")]
+    {
+        let mut task = task.borrow_mut();
+        if matches!(
+            task.state,
+            TaskState::Ready | TaskState::Failed | TaskState::Canceled
+        ) {
+            return false;
+        }
+        if task.handle.as_ref().is_some_and(JoinHandle::is_finished) {
+            return false;
+        }
+        let Some(handle) = task.handle.take() else {
+            return false;
+        };
+        handle.abort();
+        task.state = TaskState::Canceled;
+        task.result = Some(Err(runtime_error("task canceled")));
+        true
     }
-    let Some(handle) = task.handle.take() else {
-        return false;
-    };
-    handle.abort();
-    task.state = TaskState::Canceled;
-    task.result = Some(Err(runtime_error("task canceled")));
-    true
 }
 
 impl WebApp {
@@ -4055,6 +4230,7 @@ impl WebServeOptions {
     }
 }
 
+#[cfg(feature = "native")]
 async fn bind_web_server(
     options: WebServeOptions,
 ) -> Result<
@@ -4307,6 +4483,7 @@ fn split_web_path(path: &str) -> Vec<&str> {
         .collect()
 }
 
+#[cfg(feature = "native")]
 async fn read_web_request(
     stream: &mut TcpStream,
     remote: SocketAddr,
@@ -4436,6 +4613,7 @@ fn parse_form_body(text: &str) -> Result<BTreeMap<String, Value>, Diagnostic> {
     Ok(result)
 }
 
+#[cfg(feature = "native")]
 async fn write_web_response(
     stream: &mut TcpStream,
     response: Response,

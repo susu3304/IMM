@@ -9,6 +9,7 @@ dist/
 
 # Local runtime caches
 .runtime-cache/
+/apps/imm-web/src/wasm/pkg/
 
 # Editor / OS
 .DS_Store
@@ -19,4 +20,3 @@ dist/
 *.vsix
 *.tar.gz
 *.zip
-

@@ -7,8 +7,8 @@ const latestInstallerRelease = {
 };
 
 const releaseBase =
-  "https://github.com/susu3304/InsaneMarmotMatrixLanguage/releases/download/v0.2.1";
-const aptBase = "https://susu3304.github.io/InsaneMarmotMatrixLanguage/apt";
+  "https://github.com/susu3304/IMM/releases/download/v0.2.1";
+const aptBase = "https://susu3304.github.io/IMM/apt";
 
 export const staticHealth: ApiHealth = {
   ok: true,

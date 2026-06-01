@@ -81,10 +81,10 @@ runtime repoのtagまたはmanual workflowで次を一括生成する。
 
 ### Phase 3: wasm対応
 
-いきなり全runtimeをwasmにするのではなく、Rust crateを分ける。
+完了済み。全runtimeをwasmにするのではなく、Rust crateを分けてbrowser-safeな入口だけ公開している。
 
 - `imm-core`: lexer/parser/checker/evaluator、純粋なstdlib。OS/network/processに依存しない。
-- `imm-cli`: CLI、filesystem、native network、pack、server系を担当。
+- `imm-native`: CLI、filesystem、native network、pack、server系を担当。
 - `imm-wasm`: `wasm32-unknown-unknown` / `wasm-bindgen` で `check`, `fmt`, `run`, `spec` を公開。
 
 最初のwasm対象:
@@ -95,15 +95,17 @@ runtime repoのtagまたはmanual workflowで次を一括生成する。
 - `spec --json`
 - examples/lawのwasm対応サブセット
 
-後回しまたはcapability扱い:
+WASMで未対応、またはcapability扱い:
 
-- `web.grab` / `web.fetch`
+- external `web.grab` / `web.fetch`
 - `web.den` server
 - `store`
 - `pack`
+- `tick.now`
+- `nap` / `howl` task runtime
 - filesystemやnetworkを要求する機能
 
-`imm-web` はwasm runnerを第一候補にし、native専用機能だけhosted APIへfallbackする。
+`imm-web` は `browser-wasm` runtimeを第一候補にし、native専用機能だけhosted APIへfallbackする。
 
 ### Phase 4: IMM runtime API
 

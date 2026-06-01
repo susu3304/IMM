@@ -1,6 +1,7 @@
 [workspace]
 members = [
+  "crates/imm-core",
+  "crates/imm-wasm",
   "crates/imm-native"
 ]
 resolver = "2"
-

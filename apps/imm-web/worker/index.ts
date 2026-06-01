@@ -16,8 +16,8 @@ interface GitHubRelease {
   assets?: GitHubAsset[];
 }
 
-const INSTALLER_LATEST_URL = "https://api.github.com/repos/susu3304/InsaneMarmotMatrixLanguage/releases/latest";
-const APT_BASE_URL = "https://susu3304.github.io/InsaneMarmotMatrixLanguage/apt";
+const INSTALLER_LATEST_URL = "https://api.github.com/repos/susu3304/IMM/releases/latest";
+const APT_BASE_URL = "https://susu3304.github.io/IMM/apt";
 
 export default {
   async fetch(request, env) {

@@ -1,5 +1,5 @@
-const DEFAULT_INSTALLER_LATEST_URL = "https://api.github.com/repos/susu3304/InsaneMarmotMatrixLanguage/releases/latest";
-const DEFAULT_APT_BASE_URL = "https://susu3304.github.io/InsaneMarmotMatrixLanguage/apt";
+const DEFAULT_INSTALLER_LATEST_URL = "https://api.github.com/repos/susu3304/IMM/releases/latest";
+const DEFAULT_APT_BASE_URL = "https://susu3304.github.io/IMM/apt";
 
 interface GitHubAsset {
   name: string;

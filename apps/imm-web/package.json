@@ -4,14 +4,16 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "concurrently -k \"npm:dev:server\" \"npm:dev:client\"",
+    "build:wasm": "wasm-pack build ../../crates/imm-wasm --target web --release --out-dir ../../apps/imm-web/src/wasm/pkg --out-name imm_wasm --no-pack --no-opt -- --locked",
+    "dev": "npm run build:wasm && concurrently -k \"npm:dev:server\" \"npm:dev:client\"",
     "dev:server": "tsx watch server/index.ts",
     "dev:client": "vite --host 127.0.0.1",
-    "build": "tsc -p tsconfig.server.json && tsc -p tsconfig.worker.json && vite build",
+    "build": "npm run build:wasm && tsc -p tsconfig.server.json && tsc -p tsconfig.worker.json && vite build",
     "deploy:cf": "npm run build && wrangler deploy",
     "deploy:cf:dry-run": "npm run build && wrangler deploy --dry-run",
     "start": "node dist/server/index.js",
-    "smoke": "tsx scripts/smoke.ts"
+    "smoke": "tsx scripts/smoke.ts",
+    "smoke:wasm": "npm run build:wasm && tsx scripts/smoke-wasm.ts"
   },
   "dependencies": {
     "@codemirror/language": "^6.11.3",
@@ -35,6 +37,7 @@
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "vite": "^7.2.4",
+    "wasm-pack": "^0.15.0",
     "wrangler": "^4.94.0"
   }
 }

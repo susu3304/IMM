@@ -7,6 +7,10 @@ on:
       - main
     paths:
       - "apps/imm-web/**"
+      - "crates/imm-core/**"
+      - "crates/imm-wasm/**"
+      - "Cargo.lock"
+      - "Cargo.toml"
       - ".github/workflows/deploy-imm-web.yml"
 
 permissions:
@@ -20,6 +24,10 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
 
       - uses: actions/setup-node@v5
         with:

@@ -4,8 +4,10 @@ IMM runtime、Web runner、VS Code拡張、installer/release automationをまと
 
 ## Layout
 
-- `crates/imm-native`: Rust IMM runtime and CLI.
-- `apps/imm-web`: IMM Web UI and local runner API.
+- `crates/imm-core`: OS-independent IMM parser, checker, formatter, runtime core, and spec.
+- `crates/imm-native`: Native IMM CLI and runtime capabilities.
+- `crates/imm-wasm`: Browser-safe WASM bindings for `check`, `fmt`, pure `run`, and `spec`.
+- `apps/imm-web`: IMM Web UI, browser WASM runner, and local native runner API.
 - `editors/vscode/imm`: VS Code language extension.
 - `packaging/installers`: release packaging scripts.
 - `homebrew-imm`: external Homebrew tap updated by the release workflow.
@@ -15,6 +17,7 @@ IMM runtime、Web runner、VS Code拡張、installer/release automationをまと
 
 ```bash
 cargo test --locked -p imm-native
+cargo check --locked -p imm-wasm --target wasm32-unknown-unknown
 cargo run -p imm-native -- law
 ```
 
@@ -22,6 +25,7 @@ cargo run -p imm-native -- law
 cd apps/imm-web
 npm install
 npm run build
+npm run smoke:wasm
 npm run smoke
 ```
 

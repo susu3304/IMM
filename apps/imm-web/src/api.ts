@@ -1,3 +1,7 @@
+import { executeWasm } from "./wasmRunner.js";
+
+export const BROWSER_WASM_RUNTIME_ID = "browser-wasm";
+
 export interface ApiExecutionResult {
   ok: boolean;
   exitCode: number | null;
@@ -17,6 +21,16 @@ export interface ApiExecutionResult {
     stderrLimitBytes: number;
   };
 }
+
+const browserWasmRuntime: RuntimeOption = {
+  id: BROWSER_WASM_RUNTIME_ID,
+  label: "Browser WASM",
+  kind: "local",
+  version: "0.2.1",
+  available: true,
+  current: true,
+  notes: "Runs check and pure run locally in your browser."
+};
 
 export interface RuntimeOption {
   id: string;
@@ -87,9 +101,13 @@ export interface ApiHealth {
 }
 
 export async function fetchRuntimes(refresh = false): Promise<RuntimeOption[]> {
-  const response = await fetch(`/api/runtimes${refresh ? "?refresh=1" : ""}`);
-  const payload = await readJson<{ ok: boolean; runtimes: RuntimeOption[] }>(response, "Runtime list request failed.");
-  return payload.runtimes;
+  try {
+    const response = await fetch(`/api/runtimes${refresh ? "?refresh=1" : ""}`);
+    const payload = await readJson<{ ok: boolean; runtimes: RuntimeOption[] }>(response, "Runtime list request failed.");
+    return withBrowserWasmRuntime(payload.runtimes);
+  } catch {
+    return withBrowserWasmRuntime([]);
+  }
 }
 
 async function readJson<T>(response: Response, fallbackMessage: string): Promise<T> {
@@ -120,8 +138,28 @@ export async function fetchVscodeExtension(refresh = false): Promise<VscodeExten
 }
 
 export async function fetchHealth(): Promise<ApiHealth> {
-  const response = await fetch("/api/health");
-  return readJson<ApiHealth>(response, "Runner API is not available.");
+  try {
+    const response = await fetch("/api/health");
+    return withBrowserWasmHealth(await readJson<ApiHealth>(response, "Runner API is not available."));
+  } catch {
+    return withBrowserWasmHealth({
+      ok: true,
+      runnerAvailable: true,
+      engine: {
+        runtimeId: BROWSER_WASM_RUNTIME_ID,
+        label: "Browser WASM",
+        binary: "",
+        version: browserWasmRuntime.version,
+        repoDir: null
+      },
+      runtimes: [],
+      sandbox: {
+        macOsSandboxRequested: false,
+        maxSourceBytes: 64 * 1024,
+        maxTimeoutMs: 3000
+      }
+    });
+  }
 }
 
 export async function execute(
@@ -130,6 +168,9 @@ export async function execute(
   trace: boolean,
   runtimeId: string
 ): Promise<ApiExecutionResult> {
+  if (runtimeId === BROWSER_WASM_RUNTIME_ID) {
+    return executeWasm(endpoint, source, trace);
+  }
   const response = await fetch(`/api/${endpoint}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -140,4 +181,36 @@ export async function execute(
     throw new Error(payload?.error ?? `Request failed with ${response.status}`);
   }
   return payload;
+}
+
+function withBrowserWasmRuntime(runtimes: RuntimeOption[]): RuntimeOption[] {
+  const filtered = runtimes
+    .filter((runtime) => runtime.id !== BROWSER_WASM_RUNTIME_ID)
+    .map((runtime) => ({
+      ...runtime,
+      current: false,
+      available:
+        runtime.id === "static" || runtime.id === "cloudflare-static" ? false : runtime.available
+    }));
+  return [browserWasmRuntime, ...filtered];
+}
+
+function withBrowserWasmHealth(health: ApiHealth): ApiHealth {
+  return {
+    ...health,
+    runnerAvailable: true,
+    engine: health.engine ?? {
+      runtimeId: BROWSER_WASM_RUNTIME_ID,
+      label: "Browser WASM",
+      binary: "",
+      version: browserWasmRuntime.version,
+      repoDir: null
+    },
+    runtimes: withBrowserWasmRuntime(health.runtimes ?? []),
+    sandbox: health.sandbox ?? {
+      macOsSandboxRequested: false,
+      maxSourceBytes: 64 * 1024,
+      maxTimeoutMs: 3000
+    }
+  };
 }
