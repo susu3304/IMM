@@ -1,5 +1,7 @@
 #![cfg_attr(not(feature = "native"), allow(dead_code))]
 
+use std::rc::Rc;
+
 pub mod ast;
 pub mod checker;
 pub mod diagnostics;
@@ -12,7 +14,7 @@ pub mod stdlib;
 pub mod token;
 
 use parser::parse_source;
-use runtime::Runtime;
+use runtime::{Runtime, RuntimeHost};
 
 use crate::diagnostics::Diagnostic;
 
@@ -35,10 +37,40 @@ pub fn check_source(source: &str) -> Result<ExecutionResult, Diagnostic> {
 }
 
 pub fn run_source(source: &str, trace: bool) -> Result<ExecutionResult, Diagnostic> {
+    run_source_with_input(source, trace, "")
+}
+
+pub fn run_source_with_input(
+    source: &str,
+    trace: bool,
+    input: &str,
+) -> Result<ExecutionResult, Diagnostic> {
     let program = parse_source(0, source)?;
     let mut runtime = Runtime::new(None);
     runtime.set_trace_enabled(trace);
+    runtime.set_input(input);
     runtime.run(&program, true)?;
+    Ok(ExecutionResult {
+        ok: true,
+        stdout: join_lines(runtime.output_lines()),
+        stderr: join_lines(runtime.trace_lines()),
+    })
+}
+
+pub async fn run_source_with_input_async(
+    source: &str,
+    trace: bool,
+    input: &str,
+    host: Option<Rc<dyn RuntimeHost>>,
+) -> Result<ExecutionResult, Diagnostic> {
+    let program = parse_source(0, source)?;
+    let mut runtime = Runtime::new(None);
+    runtime.set_trace_enabled(trace);
+    runtime.set_input(input);
+    if let Some(host) = host {
+        runtime.set_host(host);
+    }
+    runtime.run_async(&program, true).await?;
     Ok(ExecutionResult {
         ok: true,
         stdout: join_lines(runtime.output_lines()),

@@ -29,7 +29,8 @@ a {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
 }
 
@@ -303,6 +304,44 @@ button {
 
 .editor-frame .cm-editor {
   height: 100%;
+}
+
+.stdin-panel {
+  display: grid;
+  gap: 7px;
+  padding: 10px clamp(14px, 2vw, 22px);
+  border-top: 1px solid #d7e1dc;
+  background: #fffdf8;
+}
+
+.stdin-panel span {
+  color: #60736d;
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.stdin-panel textarea {
+  width: 100%;
+  min-height: 72px;
+  resize: vertical;
+  border: 1px solid #cfd9d4;
+  border-radius: 8px;
+  padding: 10px 11px;
+  color: #1f2933;
+  background: #f7faf7;
+  outline: 0;
+  font:
+    13px/1.45 "SFMono-Regular",
+    Consolas,
+    "Liberation Mono",
+    monospace;
+}
+
+.stdin-panel textarea:focus {
+  border-color: #0f766e;
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
 }
 
 .action-row {

@@ -6,6 +6,7 @@ export interface ImmExecutionRequest {
   source: string;
   mode: ImmMode;
   runtimeId?: string;
+  stdin?: string;
   trace?: boolean;
   timeoutMs?: number;
 }

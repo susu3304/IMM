@@ -1,8 +1,23 @@
-export const examples = [
+export interface ImmExample {
+  name: string;
+  source: string;
+  stdin?: string;
+}
+
+export const examples: ImmExample[] = [
   {
     name: "Hello",
     source: `marmot main {
     squeak "Hello, IMM from the browser!"
+}
+`
+  },
+  {
+    name: "Input",
+    stdin: "susu\n",
+    source: `marmot main {
+    let name = sniff
+    squeak "Hello, " + name
 }
 `
   },

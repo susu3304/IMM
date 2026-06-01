@@ -88,9 +88,12 @@ async function resolveLocalImmBinary(): Promise<string> {
   const repoDir = process.env.IMM_REPO_DIR
     ? path.resolve(process.env.IMM_REPO_DIR)
     : DEFAULT_IMM_REPO_DIR;
+  const workspaceRoot = path.resolve(repoDir, "../..");
 
   const candidates = [
     process.env.IMM_NATIVE_BIN ? path.resolve(process.env.IMM_NATIVE_BIN) : null,
+    path.join(workspaceRoot, "target", "release", process.platform === "win32" ? "imm-native.exe" : "imm-native"),
+    path.join(workspaceRoot, "target", "debug", process.platform === "win32" ? "imm-native.exe" : "imm-native"),
     path.join(repoDir, "target", "release", process.platform === "win32" ? "imm-native.exe" : "imm-native"),
     path.join(repoDir, "target", "debug", process.platform === "win32" ? "imm-native.exe" : "imm-native")
   ].filter((candidate): candidate is string => Boolean(candidate));

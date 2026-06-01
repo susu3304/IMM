@@ -16,6 +16,7 @@ export function executeWasm(
   endpoint: "run" | "check",
   source: string,
   trace: boolean,
+  stdin: string,
   timeoutMs = DEFAULT_TIMEOUT_MS
 ): Promise<ApiExecutionResult> {
   const id = nextRequestId++;
@@ -44,7 +45,7 @@ export function executeWasm(
       finish(resultPayload(false, "", event.message || "WASM worker failed.", Math.round(performance.now() - started), false));
     };
 
-    worker.postMessage({ id, endpoint, source, trace });
+    worker.postMessage({ id, endpoint, source, trace, stdin });
   });
 }
 
@@ -68,7 +69,7 @@ function resultPayload(
       kind: "browser-wasm",
       osSandbox: false,
       tempDirIsolated: true,
-      networkDeniedByOs: true,
+      networkDeniedByOs: false,
       timeoutMs: DEFAULT_TIMEOUT_MS,
       stdoutLimitBytes: 0,
       stderrLimitBytes: 0

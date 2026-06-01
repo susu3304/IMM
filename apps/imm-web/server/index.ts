@@ -9,7 +9,7 @@ import { getVscodeExtensionDownloadUrl, getVscodeExtensionInfo, listDownloads } 
 const PORT = Number.parseInt(process.env.PORT ?? "8787", 10);
 const app = express();
 
-app.use(express.json({ limit: "96kb" }));
+app.use(express.json({ limit: "256kb" }));
 
 app.get("/api/health", async (_req, res) => {
   try {
@@ -65,6 +65,7 @@ app.post("/api/run", async (req, res) => {
       source: req.body?.source,
       mode: "run",
       runtimeId: req.body?.runtimeId,
+      stdin: req.body?.stdin,
       trace: Boolean(req.body?.trace),
       timeoutMs: req.body?.timeoutMs
     });
@@ -80,6 +81,7 @@ app.post("/api/check", async (req, res) => {
       source: req.body?.source,
       mode: "check",
       runtimeId: req.body?.runtimeId,
+      stdin: req.body?.stdin,
       timeoutMs: req.body?.timeoutMs
     });
     res.status(result.ok ? 200 : 422).json(result);

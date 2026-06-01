@@ -29,7 +29,7 @@ const browserWasmRuntime: RuntimeOption = {
   version: "0.2.1",
   available: true,
   current: true,
-  notes: "Runs check and pure run locally in your browser."
+  notes: "Runs check and JS-hosted run locally in your browser with fetch and stdin support."
 };
 
 export interface RuntimeOption {
@@ -166,15 +166,16 @@ export async function execute(
   endpoint: "run" | "check",
   source: string,
   trace: boolean,
-  runtimeId: string
+  runtimeId: string,
+  stdin: string
 ): Promise<ApiExecutionResult> {
   if (runtimeId === BROWSER_WASM_RUNTIME_ID) {
-    return executeWasm(endpoint, source, trace);
+    return executeWasm(endpoint, source, trace, stdin);
   }
   const response = await fetch(`/api/${endpoint}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ source, trace, runtimeId, timeoutMs: 3000 })
+    body: JSON.stringify({ source, trace, runtimeId, stdin, timeoutMs: 3000 })
   });
   const payload = await response.json();
   if (!response.ok && payload?.stdout === undefined) {

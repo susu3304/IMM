@@ -20,6 +20,20 @@ assert.match(hello.stdout, /Hello from IMM Web Runner/);
 assert.equal(hello.sandbox.tempDirIsolated, true);
 console.log(`hello: ok (${hello.sandbox.kind}, ${hello.durationMs}ms)`);
 
+const stdin = await executeImm({
+  mode: "run",
+  stdin: "susu\n",
+  source: `marmot main {
+    let name = sniff
+    squeak "stdin=" + name
+}
+`
+});
+
+assert.equal(stdin.ok, true, stdin.stderr || stdin.stdout);
+assert.match(stdin.stdout, /stdin=susu/);
+console.log("stdin: ok");
+
 if (hello.sandbox.osSandbox) {
   const escapePath = path.join(process.cwd(), "sandbox-escape.immstore");
   const escape = await executeImm({

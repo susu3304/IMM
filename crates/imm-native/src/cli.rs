@@ -79,6 +79,10 @@ pub fn run_embedded(entry: &str, sources: BTreeMap<String, String>, trace: bool)
         Ok(program) => {
             let mut runtime = Runtime::with_embedded_sources(entry, sources);
             runtime.set_trace_enabled(trace);
+            if let Err(err) = apply_runtime_input(&mut runtime) {
+                eprintln!("{err}");
+                return 1;
+            }
             match runtime.run(&program, true) {
                 Ok(()) => {
                     emit_runtime_output(&runtime);
@@ -140,6 +144,7 @@ fn command_run(file: &Path, trace: bool) -> Result<i32, Diagnostic> {
     let program = parse_source(0, &source)?;
     let mut runtime = Runtime::new(Some(path));
     runtime.set_trace_enabled(trace);
+    apply_runtime_input(&mut runtime)?;
     runtime.run(&program, true)?;
     emit_runtime_output(&runtime);
     Ok(0)
@@ -276,6 +281,15 @@ fn emit_runtime_output(runtime: &Runtime) {
     for line in runtime.trace_lines() {
         eprintln!("{line}");
     }
+}
+
+fn apply_runtime_input(runtime: &mut Runtime) -> Result<(), Diagnostic> {
+    let Ok(input_path) = std::env::var("IMM_STDIN_FILE") else {
+        return Ok(());
+    };
+    let input = fs::read_to_string(input_path).map_err(io_error)?;
+    runtime.set_input(input);
+    Ok(())
 }
 
 fn discover_probe_files(root: &Path) -> Vec<PathBuf> {

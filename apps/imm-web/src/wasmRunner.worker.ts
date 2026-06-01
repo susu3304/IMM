@@ -5,6 +5,7 @@ interface WasmWorkerRequest {
   endpoint: "run" | "check";
   source: string;
   trace: boolean;
+  stdin: string;
 }
 
 interface WasmCoreResult {
@@ -22,11 +23,12 @@ function ensureInitialized() {
 
 self.onmessage = async (event: MessageEvent<WasmWorkerRequest>) => {
   const started = performance.now();
-  const { id, endpoint, source, trace } = event.data;
+  const { id, endpoint, source, trace, stdin } = event.data;
 
   try {
     await ensureInitialized();
-    const result = (endpoint === "run" ? wasmRun(source, trace) : wasmCheck(source)) as WasmCoreResult;
+    const run = wasmRun as (source: string, trace: boolean, stdin?: string) => Promise<WasmCoreResult> | WasmCoreResult;
+    const result = await Promise.resolve(endpoint === "run" ? run(source, trace, stdin) : wasmCheck(source));
     self.postMessage({
       id,
       ok: result.ok ?? true,

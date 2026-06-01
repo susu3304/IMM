@@ -7,6 +7,7 @@ import { resolveImmBinary } from "./immBinary.js";
 import type { ImmExecutionRequest, ImmExecutionResult, SandboxKind } from "./types.js";
 
 const MAX_SOURCE_BYTES = 64 * 1024;
+const MAX_STDIN_BYTES = 64 * 1024;
 const DEFAULT_TIMEOUT_MS = 3_000;
 const MIN_TIMEOUT_MS = 250;
 const MAX_TIMEOUT_MS = 8_000;
@@ -99,6 +100,13 @@ export async function executeImm(request: ImmExecutionRequest): Promise<ImmExecu
   if (request.mode !== "run" && request.mode !== "check") {
     throw new Error("mode must be run or check.");
   }
+  if (request.stdin !== undefined && typeof request.stdin !== "string") {
+    throw new Error("stdin must be a string.");
+  }
+  const stdin = request.stdin ?? "";
+  if (byteLength(stdin) > MAX_STDIN_BYTES) {
+    throw new Error(`stdin must be ${MAX_STDIN_BYTES} bytes or less.`);
+  }
 
   const timeoutMs = clampTimeoutMs(request.timeoutMs);
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "imm-web-runner-"));
@@ -111,11 +119,14 @@ export async function executeImm(request: ImmExecutionRequest): Promise<ImmExecu
 
   try {
     const sourcePath = path.join(tempDir, "main.imm");
+    const stdinPath = path.join(tempDir, "stdin.txt");
     await writeFile(sourcePath, request.source, { encoding: "utf8", mode: 0o600 });
+    await writeFile(stdinPath, stdin, { encoding: "utf8", mode: 0o600 });
 
     const binary = await resolveImmBinary(request.runtimeId);
     const realBinary = binary === "imm-native" ? binary : await realpath(binary);
     const realTempDir = await realpath(tempDir);
+    const realStdinPath = await realpath(stdinPath);
     const baseArgs = [request.mode, sourcePath];
     if (request.mode === "run" && request.trace) {
       baseArgs.push("--trace");
@@ -146,7 +157,8 @@ export async function executeImm(request: ImmExecutionRequest): Promise<ImmExecu
       TMP: tempDir,
       NO_COLOR: "1",
       RUST_BACKTRACE: "0",
-      IMM_WEB_SANDBOX: "1"
+      IMM_WEB_SANDBOX: "1",
+      IMM_STDIN_FILE: realStdinPath
     };
 
     const child = spawn(command, args, {

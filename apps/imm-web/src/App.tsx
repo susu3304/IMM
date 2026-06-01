@@ -79,9 +79,11 @@ const editorTheme = EditorView.theme({
 });
 
 const defaultSource = examples[0].source;
+const defaultStdin = examples[0].stdin ?? "";
 
 function App() {
   const [source, setSource] = useState(defaultSource);
+  const [stdin, setStdin] = useState(defaultStdin);
   const [trace, setTrace] = useState(false);
   const [health, setHealth] = useState<ApiHealth | null>(null);
   const [runtimes, setRuntimes] = useState<RuntimeOption[]>([]);
@@ -176,7 +178,7 @@ function App() {
     setError(null);
     setResult(null);
     try {
-      const next = await execute(kind, source, trace, selectedRuntimeId);
+      const next = await execute(kind, source, trace, selectedRuntimeId, stdin);
       setResult(next);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -214,6 +216,7 @@ function App() {
                   type="button"
                   onClick={() => {
                     setSource(example.source);
+                    setStdin(example.stdin ?? "");
                     setResult(null);
                     setError(null);
                   }}
@@ -274,6 +277,16 @@ function App() {
               onChange={setSource}
             />
           </div>
+          <label className="stdin-panel">
+            <span>stdin</span>
+            <textarea
+              aria-label="Standard input"
+              onChange={(event) => setStdin(event.target.value)}
+              placeholder="stdin"
+              spellCheck={false}
+              value={stdin}
+            />
+          </label>
           <div className="action-row">
             <button className="primary-button" disabled={pending !== null || !runnerAvailable} type="button" onClick={() => submit("run")}>
               {pending === "run" ? <Loader2 className="spin" size={18} /> : <Play size={18} />}

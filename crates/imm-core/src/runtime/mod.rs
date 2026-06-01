@@ -5,6 +5,7 @@ use std::future::Future;
 #[cfg(feature = "native")]
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::rc::Rc;
 #[cfg(feature = "native")]
 use std::time::Duration;
@@ -47,6 +48,32 @@ type WebContextRef = Rc<RefCell<WebContext>>;
 type WebRequestRef = Rc<WebRequest>;
 type WebServerRef = Rc<WebServer>;
 type ModuleCache = Rc<RefCell<HashMap<PathBuf, Value>>>;
+type InputRef = Rc<RefCell<InputState>>;
+pub type HostFuture<T> = Pin<Box<dyn Future<Output = Result<T, Diagnostic>>>>;
+
+#[derive(Clone, Debug)]
+pub struct HostHttpRequest {
+    pub method: String,
+    pub url: String,
+    pub headers: BTreeMap<String, String>,
+    pub body: Option<String>,
+    pub timeout_ms: i64,
+}
+
+#[derive(Clone, Debug)]
+pub struct HostHttpResponse {
+    pub status: i64,
+    pub headers: BTreeMap<String, String>,
+    pub body: String,
+    pub url: String,
+    pub ok: bool,
+}
+
+pub trait RuntimeHost {
+    fn http_request(&self, request: HostHttpRequest) -> HostFuture<HostHttpResponse>;
+    fn sleep(&self, ms: u64) -> HostFuture<()>;
+    fn now_ms(&self) -> Result<i64, Diagnostic>;
+}
 
 #[derive(Clone)]
 pub enum Value {
@@ -288,6 +315,8 @@ pub struct TaskData {
     state: TaskState,
     #[cfg(feature = "native")]
     handle: Option<JoinHandle<Result<Value, Diagnostic>>>,
+    #[cfg(not(feature = "native"))]
+    future: Option<HostFuture<Value>>,
     result: Option<Result<Value, Diagnostic>>,
 }
 
@@ -410,6 +439,12 @@ struct Cell {
     type_name: Option<String>,
 }
 
+#[derive(Clone, Debug, Default)]
+struct InputState {
+    lines: Vec<String>,
+    cursor: usize,
+}
+
 #[derive(Clone, Default)]
 struct Environment {
     parent: Option<EnvRef>,
@@ -486,6 +521,7 @@ pub struct Runtime {
     env: EnvRef,
     module_cache: ModuleCache,
     module_stack: Vec<PathBuf>,
+    input: InputRef,
     output: Rc<RefCell<Vec<String>>>,
     trace: Rc<RefCell<Vec<String>>>,
     trace_enabled: bool,
@@ -495,6 +531,7 @@ pub struct Runtime {
     insane_depth: usize,
     howl_depth: usize,
     embedded_sources: Rc<BTreeMap<String, String>>,
+    host: Option<Rc<dyn RuntimeHost>>,
     rng_state: u64,
 }
 
@@ -505,6 +542,7 @@ impl Runtime {
             env: Rc::new(RefCell::new(Environment::default())),
             module_cache: Rc::new(RefCell::new(HashMap::new())),
             module_stack: Vec::new(),
+            input: Rc::new(RefCell::new(InputState::default())),
             output: Rc::new(RefCell::new(Vec::new())),
             trace: Rc::new(RefCell::new(Vec::new())),
             trace_enabled: false,
@@ -514,6 +552,7 @@ impl Runtime {
             insane_depth: 0,
             howl_depth: 0,
             embedded_sources: Rc::new(BTreeMap::new()),
+            host: None,
             rng_state: random_seed(),
         };
         runtime.install_core();
@@ -530,6 +569,16 @@ impl Runtime {
         self.trace_enabled = enabled;
     }
 
+    pub fn set_input(&mut self, input: impl Into<String>) {
+        let normalized = input.into().replace("\r\n", "\n").replace('\r', "\n");
+        let lines = normalized.lines().map(ToString::to_string).collect();
+        *self.input.borrow_mut() = InputState { lines, cursor: 0 };
+    }
+
+    pub fn set_host(&mut self, host: Rc<dyn RuntimeHost>) {
+        self.host = Some(host);
+    }
+
     pub fn output_lines(&self) -> Vec<String> {
         self.output.borrow().clone()
     }
@@ -538,12 +587,23 @@ impl Runtime {
         self.trace.borrow().clone()
     }
 
+    fn read_input_line(&self) -> String {
+        let mut input = self.input.borrow_mut();
+        if input.cursor >= input.lines.len() {
+            return String::new();
+        }
+        let line = input.lines[input.cursor].clone();
+        input.cursor += 1;
+        line
+    }
+
     fn fork_for_task(&self) -> Self {
         Self {
             source_path: self.source_path.clone(),
             env: self.env.clone(),
             module_cache: self.module_cache.clone(),
             module_stack: self.module_stack.clone(),
+            input: self.input.clone(),
             output: self.output.clone(),
             trace: self.trace.clone(),
             trace_enabled: self.trace_enabled,
@@ -553,6 +613,7 @@ impl Runtime {
             insane_depth: self.insane_depth,
             howl_depth: self.howl_depth,
             embedded_sources: self.embedded_sources.clone(),
+            host: self.host.clone(),
             rng_state: self.rng_state,
         }
     }
@@ -572,14 +633,10 @@ impl Runtime {
 
         #[cfg(not(feature = "native"))]
         {
-            let result = futures_executor::block_on(future);
             return Value::Task(Rc::new(RefCell::new(TaskData {
-                state: if result.is_ok() {
-                    TaskState::Ready
-                } else {
-                    TaskState::Failed
-                },
-                result: Some(result),
+                state: TaskState::Pending,
+                future: Some(Box::pin(future)),
+                result: None,
             })));
         }
     }
@@ -615,7 +672,7 @@ impl Runtime {
     }
 
     #[async_recursion::async_recursion(?Send)]
-    async fn run_async(&mut self, program: &Program, run_main: bool) -> Result<(), Diagnostic> {
+    pub async fn run_async(&mut self, program: &Program, run_main: bool) -> Result<(), Diagnostic> {
         let main = self.prepare(program).await?;
         for item in &program.items {
             if should_skip_top_level_execute(item) {
@@ -1261,7 +1318,7 @@ impl Runtime {
                 let args = self.eval_args(args).await?;
                 self.hatch(name, args).await
             }
-            Expr::Sniff => Ok(Value::String(String::new())),
+            Expr::Sniff => Ok(Value::String(self.read_input_line())),
             Expr::Unary { op, expr } => {
                 let value = self.evaluate(expr).await?;
                 match op.as_str() {
@@ -2336,9 +2393,13 @@ impl Runtime {
                 }
                 #[cfg(not(feature = "native"))]
                 {
-                    return Err(runtime_error(
-                        "nap is not available in the browser WASM runtime",
-                    ));
+                    let Some(host) = self.host.clone() else {
+                        return Err(runtime_error("nap is not available in this runtime host"));
+                    };
+                    return Ok(self.spawn_task(async move {
+                        host.sleep(ms as u64).await?;
+                        Ok(Value::Null)
+                    }));
                 }
                 #[cfg(feature = "native")]
                 Ok(self.spawn_task(async move {
@@ -2623,9 +2684,12 @@ impl Runtime {
                 require_arg_count("tick.now", &args, 0)?;
                 #[cfg(not(feature = "native"))]
                 {
-                    return Err(runtime_error(
-                        "tick.now is not available in the browser WASM runtime",
-                    ));
+                    let Some(host) = self.host.as_ref() else {
+                        return Err(runtime_error(
+                            "tick.now is not available in this runtime host",
+                        ));
+                    };
+                    return Ok(Value::Int(host.now_ms()?));
                 }
                 #[cfg(feature = "native")]
                 {
@@ -3252,10 +3316,33 @@ impl Runtime {
 
         #[cfg(not(feature = "native"))]
         {
-            return Err(Diagnostic::new(
-                Category::Network,
-                "external HTTP requests are not available in the browser WASM runtime",
-            ));
+            let Some(host) = self.host.clone() else {
+                return Err(Diagnostic::new(
+                    Category::Network,
+                    "external HTTP requests are not available in this runtime host",
+                ));
+            };
+            let response = host
+                .http_request(HostHttpRequest {
+                    method: request.method,
+                    url: request.url,
+                    headers: request.headers,
+                    body: request.body,
+                    timeout_ms: request.timeout_ms,
+                })
+                .await?;
+            let headers = response
+                .headers
+                .into_iter()
+                .map(|(key, value)| (key, Value::String(value)))
+                .collect::<BTreeMap<_, _>>();
+            return Ok(Value::Response(Rc::new(Response {
+                status: response.status,
+                headers,
+                body: response.body,
+                url: response.url,
+                ok: response.ok,
+            })));
         }
 
         #[cfg(feature = "native")]
@@ -4042,14 +4129,33 @@ fn expr_may_capture_env(expr: &Expr) -> bool {
 async fn wait_task(task: TaskRef) -> Result<Value, Diagnostic> {
     #[cfg(not(feature = "native"))]
     {
-        let task = task.borrow();
-        if let Some(result) = task.result.clone() {
-            return result;
-        }
-        if task.state == TaskState::Canceled {
+        let future = {
+            let mut task = task.borrow_mut();
+            if let Some(result) = task.result.clone() {
+                return result;
+            }
+            if task.state == TaskState::Canceled {
+                return Err(runtime_error("task canceled"));
+            }
+            task.future.take()
+        };
+
+        let Some(future) = future else {
+            return Err(runtime_error("task has no runnable handle"));
+        };
+
+        let result = future.await;
+        let mut task_data = task.borrow_mut();
+        if task_data.state == TaskState::Canceled {
             return Err(runtime_error("task canceled"));
         }
-        return Err(runtime_error("task has no runnable handle"));
+        task_data.state = if result.is_ok() {
+            TaskState::Ready
+        } else {
+            TaskState::Failed
+        };
+        task_data.result = Some(result.clone());
+        result
     }
 
     #[cfg(feature = "native")]
@@ -4116,6 +4222,7 @@ fn task_cancel(task: &TaskRef) -> bool {
             return false;
         }
         task.state = TaskState::Canceled;
+        task.future = None;
         task.result = Some(Err(runtime_error("task canceled")));
         return true;
     }

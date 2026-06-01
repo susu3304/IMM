@@ -56,6 +56,38 @@ fn run_executes_native_runtime() {
 }
 
 #[test]
+fn run_reads_stdin_file_for_sniff() {
+    let dir = std::env::temp_dir().join(format!("imm-native-stdin-test-{}", std::process::id()));
+    fs::create_dir_all(&dir).expect("create temp dir");
+    let file = dir.join("stdin.imm");
+    let input = dir.join("stdin.txt");
+    fs::write(
+        &file,
+        r#"marmot main {
+    let name = sniff
+    let move = sniff
+    squeak name + ":" + move
+}
+"#,
+    )
+    .expect("write IMM stdin program");
+    fs::write(&input, "susu\nUP\n").expect("write stdin fixture");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_imm-native"))
+        .arg("run")
+        .arg(&file)
+        .env("IMM_STDIN_FILE", &input)
+        .output()
+        .expect("run imm-native stdin program");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "susu:UP\n");
+}
+
+#[test]
 fn law_runs_shared_law_suite_natively() {
     let output = Command::new(env!("CARGO_BIN_EXE_imm-native"))
         .arg("law")

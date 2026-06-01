@@ -492,9 +492,12 @@ name = "imm-wasm"
 version = "0.2.1"
 dependencies = [
  "imm-core",
+ "js-sys",
  "serde",
  "serde-wasm-bindgen",
  "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]
