@@ -17,6 +17,8 @@ const keywords = new Set([
   "continue",
   "try",
   "catch",
+  "tunnel",
+  "burrow",
   "use",
   "den",
   "hatch",
@@ -30,15 +32,66 @@ const keywords = new Set([
   "wait",
   "scatter",
   "nest",
+  "pack",
+  "crate",
+  "pelt",
   "probe",
+  "law",
   "expect",
+  "trace",
   "true",
   "false",
   "null"
 ]);
 
-const types = new Set(["Int", "Float", "Bool", "String", "Array", "Matrix", "Point", "Void", "Map", "Null"]);
-const builtins = new Set(["squeak", "sniff", "panic", "matrix", "width", "height", "neighbors4", "neighbors8"]);
+const types = new Set([
+  "Any",
+  "Int",
+  "Float",
+  "Bool",
+  "String",
+  "Array",
+  "Matrix",
+  "Point",
+  "Void",
+  "Map",
+  "Null",
+  "Task",
+  "TaskGroup",
+  "Response",
+  "WebApp",
+  "Server"
+]);
+const builtins = new Set([
+  "squeak",
+  "sniff",
+  "panic",
+  "matrix",
+  "len",
+  "type",
+  "str",
+  "int",
+  "float",
+  "bool",
+  "map",
+  "filter",
+  "reduce",
+  "nap",
+  "math",
+  "path",
+  "chaser",
+  "store",
+  "web",
+  "tick",
+  "width",
+  "height",
+  "in_bounds",
+  "points",
+  "neighbors4",
+  "neighbors8",
+  "find",
+  "find_all"
+]);
 
 export const immLanguage = StreamLanguage.define({
   name: "imm",
@@ -46,8 +99,16 @@ export const immLanguage = StreamLanguage.define({
     if (stream.eatSpace()) {
       return null;
     }
-    if (stream.match("//")) {
+    if (stream.match("#")) {
       stream.skipToEnd();
+      return "comment";
+    }
+    if (stream.match("/*")) {
+      if (stream.skipTo("*/")) {
+        stream.match("*/");
+      } else {
+        stream.skipToEnd();
+      }
       return "comment";
     }
     if (stream.match(/"(?:[^"\\]|\\.)*"?/)) {
@@ -79,7 +140,7 @@ export const immLanguage = StreamLanguage.define({
     return null;
   },
   languageData: {
-    commentTokens: { line: "//" }
+    commentTokens: { line: "#", block: { open: "/*", close: "*/" } }
   }
 });
 

@@ -11,10 +11,12 @@ import {
   FileCheck2,
   GitBranch,
   Globe2,
+  ListTree,
   Loader2,
   Package,
   Play,
   RefreshCcw,
+  Search,
   ShieldCheck,
   SquareTerminal,
   TimerReset,
@@ -36,7 +38,13 @@ import {
 } from "./api.js";
 import { examples } from "./examples.js";
 import { immHighlighting, immLanguage } from "./immLanguage.js";
-import { docsSections, repositoryRoles } from "./siteContent.js";
+import {
+  languageDocCategories,
+  languageDocs,
+  repositoryRoles,
+  type LanguageDocCoverage,
+  type LanguageDocSection
+} from "./siteContent.js";
 import { staticDownloads, staticHealth, staticRuntimes, staticVscodeExtension } from "./staticFallback.js";
 
 const editorTheme = EditorView.theme({
@@ -113,6 +121,31 @@ function App() {
     fetchVscodeExtension()
       .then(setVscodeExtension)
       .catch(() => setVscodeExtension(staticVscodeExtension));
+  }, []);
+
+  useEffect(() => {
+    function scrollToCurrentHash() {
+      const id = decodeURIComponent(window.location.hash.replace(/^#/, ""));
+      if (!id) {
+        return;
+      }
+      const element = document.getElementById(id);
+      if (!element) {
+        return;
+      }
+      const top = Math.max(element.getBoundingClientRect().top + window.scrollY - 92, 0);
+      const previousScrollBehavior = document.documentElement.style.scrollBehavior;
+      document.documentElement.style.scrollBehavior = "auto";
+      window.scrollTo({ top, behavior: "auto" });
+      document.documentElement.style.scrollBehavior = previousScrollBehavior;
+    }
+
+    const timers = [0, 100, 350].map((delay) => window.setTimeout(scrollToCurrentHash, delay));
+    window.addEventListener("hashchange", scrollToCurrentHash);
+    return () => {
+      timers.forEach((timer) => window.clearTimeout(timer));
+      window.removeEventListener("hashchange", scrollToCurrentHash);
+    };
   }, []);
 
   async function refreshRuntimeList() {
@@ -427,18 +460,7 @@ function SiteSections({
         </div>
       </div>
 
-      <div className="section-band" id="docs">
-        <SectionHeader icon={<BookOpen size={20} />} title="Docs" text="リンクではなく、このページ内に現行仕様の要点を表示します。" />
-        <div className="docs-grid">
-          {docsSections.map((section) => (
-            <article className="doc-card" key={section.title}>
-              <h3>{section.title}</h3>
-              <p>{section.text}</p>
-              <pre>{section.code}</pre>
-            </article>
-          ))}
-        </div>
-      </div>
+      <LanguageDocs />
 
       <div className="section-band" id="vscode">
         <SectionHeader icon={<Package size={20} />} title="VS Code Extension" text="VSIX を直接ダウンロードし、コマンドでインストールできます。" />
@@ -504,6 +526,172 @@ function SiteSections({
         </div>
       </div>
     </section>
+  );
+}
+
+const coverageLabels: Record<LanguageDocCoverage, string> = {
+  browser: "Browser + Native",
+  native: "Native/API",
+  partial: "Partial"
+};
+
+function LanguageDocs() {
+  const [query, setQuery] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState("All");
+  const normalizedQuery = query.trim().toLowerCase();
+
+  const categoryCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const section of languageDocs) {
+      counts.set(section.category, (counts.get(section.category) ?? 0) + 1);
+    }
+    return counts;
+  }, []);
+
+  const visibleDocs = useMemo(() => {
+    return languageDocs.filter((section) => {
+      if (selectedCategory !== "All" && section.category !== selectedCategory) {
+        return false;
+      }
+      if (!normalizedQuery) {
+        return true;
+      }
+      return searchableDocText(section).includes(normalizedQuery);
+    });
+  }, [normalizedQuery, selectedCategory]);
+
+  return (
+    <div className="section-band docs-band" id="docs">
+      <SectionHeader
+        icon={<BookOpen size={20} />}
+        title="Language Docs"
+        text="現行の IMM 言語仕様、標準ライブラリ、実行ターゲットの差分をこのページ内で引けるようにまとめています。"
+      />
+
+      <div className="docs-controls">
+        <label className="docs-search">
+          <Search size={17} />
+          <input
+            aria-label="Search language documentation"
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search syntax, library, runtime..."
+            type="search"
+            value={query}
+          />
+        </label>
+        <div className="docs-filter-row" aria-label="Documentation categories">
+          {languageDocCategories.map((category) => {
+            const count = category === "All" ? languageDocs.length : categoryCounts.get(category) ?? 0;
+            return (
+              <button
+                className={`filter-button ${selectedCategory === category ? "active" : ""}`}
+                key={category}
+                onClick={() => setSelectedCategory(category)}
+                type="button"
+              >
+                {category}
+                <span>{count}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="docs-result-row">
+        <strong>{visibleDocs.length}</strong>
+        <span>of {languageDocs.length} sections</span>
+      </div>
+
+      <div className="language-doc-layout">
+        <aside className="language-doc-sidebar" aria-label="Language documentation contents">
+          <div className="sidebar-title">
+            <ListTree size={16} />
+            Contents
+          </div>
+          {visibleDocs.length ? (
+            <nav className="language-doc-nav">
+              {visibleDocs.map((section) => (
+                <a href={`#${section.id}`} key={section.id}>
+                  <span>{section.title}</span>
+                  <small>{section.category}</small>
+                </a>
+              ))}
+            </nav>
+          ) : (
+            <p className="doc-empty">No matching sections.</p>
+          )}
+        </aside>
+
+        <div className="language-doc-list">
+          {visibleDocs.map((section) => (
+            <LanguageDocCard key={section.id} section={section} />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function searchableDocText(section: LanguageDocSection) {
+  return [
+    section.title,
+    section.summary,
+    section.category,
+    section.coverageNote,
+    ...section.keywords,
+    ...section.bullets,
+    ...(section.syntax ?? []),
+    section.code ?? ""
+  ]
+    .join(" ")
+    .toLowerCase();
+}
+
+function LanguageDocCard({ section }: { section: LanguageDocSection }) {
+  return (
+    <article className="language-doc-card" id={section.id}>
+      <div className="language-doc-meta">
+        <span>{section.category}</span>
+        <span className={`coverage-pill coverage-${section.coverage}`}>{coverageLabels[section.coverage]}</span>
+      </div>
+      <div className="language-doc-heading">
+        <h3>{section.title}</h3>
+        <p>{section.summary}</p>
+      </div>
+      <p className="coverage-note">{section.coverageNote}</p>
+      {section.syntax?.length ? (
+        <div className="syntax-strip" aria-label={`${section.title} syntax`}>
+          {section.syntax.map((syntax) => (
+            <code key={syntax}>{syntax}</code>
+          ))}
+        </div>
+      ) : null}
+      <ul className="doc-bullets">
+        {section.bullets.map((bullet) => (
+          <li key={bullet}>
+            <TextWithCode text={bullet} />
+          </li>
+        ))}
+      </ul>
+      {section.code ? (
+        <pre className="doc-code">
+          <code>{section.code}</code>
+        </pre>
+      ) : null}
+    </article>
+  );
+}
+
+function TextWithCode({ text }: { text: string }) {
+  return (
+    <>
+      {text.split(/(`[^`]+`)/g).map((part, index) => {
+        if (part.startsWith("`") && part.endsWith("`")) {
+          return <code key={`${part}-${index}`}>{part.slice(1, -1)}</code>;
+        }
+        return <span key={`${part}-${index}`}>{part}</span>;
+      })}
+    </>
   );
 }
 
