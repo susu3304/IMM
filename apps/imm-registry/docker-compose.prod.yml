@@ -1,0 +1,18 @@
+services:
+  api:
+    build:
+      context: ../..
+      dockerfile: apps/imm-registry/Dockerfile
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL to the production Postgres URL}
+      IMM_REGISTRY_BIND: ${IMM_REGISTRY_BIND:-0.0.0.0:8080}
+      IMM_REGISTRY_PUBLIC_BASE_URL: ${IMM_REGISTRY_PUBLIC_BASE_URL:?set the public registry URL}
+      IMM_REGISTRY_STORAGE_ROOT: ${IMM_REGISTRY_STORAGE_ROOT:-/var/lib/imm-registry}
+      IMM_REGISTRY_ADMIN_TOKEN: ${IMM_REGISTRY_ADMIN_TOKEN:?set an internal admin token}
+      IMM_REGISTRY_MAX_UPLOAD_BYTES: ${IMM_REGISTRY_MAX_UPLOAD_BYTES:-26214400}
+      RUST_LOG: ${RUST_LOG:-imm_registry=info,tower_http=info}
+    ports:
+      - "${IMM_REGISTRY_PORT:-8080}:8080"
+    volumes:
+      - ${IMM_REGISTRY_STORAGE_HOST_PATH:-./storage}:${IMM_REGISTRY_STORAGE_ROOT:-/var/lib/imm-registry}
+    restart: unless-stopped

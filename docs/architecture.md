@@ -8,6 +8,7 @@ imm-native    current: native CLI, filesystem, network, store, pack, release bin
 imm-wasm      current: browser-safe binding for imm-web
 imm-api       future: authenticated native HTTP execution service
 imm-web       current: public site, browser WASM runner, local native runner API
+imm-registry  current: IMM library registry API, internal admin upload, Postgres metadata
 vscode        current: editor integration
 packaging     current: release artifacts and Homebrew synchronization
 ```
@@ -18,6 +19,7 @@ packaging     current: release artifacts and Homebrew synchronization
 - `crates/imm-native`: native CLI/runtime。filesystem、native network、server、store、packを担当する。
 - `crates/imm-wasm`: `wasm32-unknown-unknown` / `wasm-bindgen` binding。`check`、`fmt`、pureな `run`、`spec` を公開する。
 - `apps/imm-web`: Web UI。公開環境ではbrowser WASM runnerを使い、ローカルではnative runner APIも選べる。
+- `apps/imm-registry`: IMM library registry。公開read API、内部admin upload UI、Postgres metadata、filesystem package storageを担当する。
 - `editors/vscode/imm`: VS Code拡張。runtime repo内の新しい版を正として配置している。
 - `packaging/installers`: deb、MSI、macOS tarball、APT repo、VSIX、Homebrew formula更新用script。
 - `homebrew-imm`: 正式なtap repoは別repoのまま維持し、このrepoのrelease workflowから更新する。

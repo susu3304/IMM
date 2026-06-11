@@ -1,5 +1,6 @@
 [workspace]
 members = [
+  "apps/imm-registry",
   "crates/imm-core",
   "crates/imm-wasm",
   "crates/imm-native"
