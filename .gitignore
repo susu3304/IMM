@@ -10,6 +10,7 @@ dist/
 # Local runtime caches
 .runtime-cache/
 /apps/imm-web/src/wasm/pkg/
+/apps/imm-registry/storage/
 
 # Editor / OS
 .DS_Store

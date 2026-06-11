@@ -15,6 +15,15 @@ docker compose up --build
 - Admin UI: <http://localhost:8080/admin>
 - Dev admin token: `dev-admin-token`
 
+If port `8080` is already in use:
+
+```bash
+IMM_REGISTRY_PORT=18080 docker compose up --build
+```
+
+The development `IMM_REGISTRY_PUBLIC_BASE_URL` follows `IMM_REGISTRY_PORT`, so
+API download URLs use the same host port.
+
 The development compose file runs its own Postgres and stores package archives
 under `./storage`.
 

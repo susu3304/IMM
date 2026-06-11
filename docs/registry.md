@@ -41,6 +41,15 @@ Local services:
 - Dev Postgres: Compose-managed `postgres:16-alpine`
 - Dev storage: `apps/imm-registry/storage`
 
+If port `8080` is already in use, set a host port:
+
+```bash
+IMM_REGISTRY_PORT=18080 docker compose up --build
+```
+
+The development `IMM_REGISTRY_PUBLIC_BASE_URL` follows `IMM_REGISTRY_PORT`, so
+metadata download URLs stay correct when the host port changes.
+
 ## Production Configuration
 
 Production should use an externally managed Postgres database and a server-side

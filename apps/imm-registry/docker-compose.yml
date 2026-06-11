@@ -5,8 +5,6 @@ services:
       POSTGRES_USER: imm_registry
       POSTGRES_PASSWORD: imm_registry
       POSTGRES_DB: imm_registry
-    ports:
-      - "5432:5432"
     volumes:
       - imm-registry-postgres:/var/lib/postgresql/data
     healthcheck:
@@ -25,12 +23,12 @@ services:
     environment:
       DATABASE_URL: postgres://imm_registry:imm_registry@postgres:5432/imm_registry
       IMM_REGISTRY_BIND: 0.0.0.0:8080
-      IMM_REGISTRY_PUBLIC_BASE_URL: http://localhost:8080
+      IMM_REGISTRY_PUBLIC_BASE_URL: http://localhost:${IMM_REGISTRY_PORT:-8080}
       IMM_REGISTRY_STORAGE_ROOT: /var/lib/imm-registry
       IMM_REGISTRY_ADMIN_TOKEN: dev-admin-token
       RUST_LOG: imm_registry=info,tower_http=info
     ports:
-      - "8080:8080"
+      - "${IMM_REGISTRY_PORT:-8080}:8080"
     volumes:
       - ./storage:/var/lib/imm-registry
 
