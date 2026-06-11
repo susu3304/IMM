@@ -8,10 +8,12 @@ IMM runtime、Web runner、VS Code拡張、installer/release automationをまと
 - `crates/imm-native`: Native IMM CLI and runtime capabilities.
 - `crates/imm-wasm`: Browser-safe WASM bindings for `check`, `fmt`, pure `run`, and `spec`.
 - `apps/imm-web`: IMM Web UI, browser WASM runner, and local native runner API.
+- `apps/imm-registry`: IMM library registry API and internal admin upload UI.
 - `editors/vscode/imm`: VS Code language extension.
 - `packaging/installers`: release packaging scripts.
 - `homebrew-imm`: external Homebrew tap updated by the release workflow.
 - `docs/architecture.md`: integration architecture and next split plan.
+- `docs/registry.md`: IMM Registry operation and package archive rules.
 
 ## Development
 
@@ -33,6 +35,11 @@ npm run smoke
 cd editors/vscode/imm
 npm test
 npm run package
+```
+
+```bash
+cd apps/imm-registry
+docker compose up --build
 ```
 
 ## Release

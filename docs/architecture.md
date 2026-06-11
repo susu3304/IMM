@@ -29,6 +29,18 @@ packaging     current: release artifacts and Homebrew synchronization
 - browser WASM: `check`、`fmt`、pureな `run`、`spec`。`web.grab` は `data:` URLのみ扱える。
 - native CLI/API: filesystem、external network、web server、store、pack、law/probe。
 - future hosted API: API keyつきでnative capabilityを限定公開し、`imm-web` からfallbackできるようにする。
+- registry API: library metadata/search/downloadだけを公開する。publishは公開CLIから行わず、内部admin Webから `.imm.tgz` をuploadする。
+
+## Registry
+
+`apps/imm-registry` は IMM library registry の独立serverで、`nkmzapi` とは結合しない。
+
+```text
+public clients -> read API -> Postgres metadata -> filesystem archive storage
+internal admin -> /admin upload UI -> immutable package version
+```
+
+開発時は `docker compose up --build` でCompose内Postgresを使う。本番では `DATABASE_URL` の外部Postgresと `IMM_REGISTRY_STORAGE_ROOT` / `IMM_REGISTRY_STORAGE_HOST_PATH` のserver-side filesystem storageを使う。詳細は `docs/registry.md` を参照する。
 
 ## Release同期
 
